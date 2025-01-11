@@ -8,8 +8,8 @@ import (
 
 const fieldPrefix = "field"
 
-func extractFields(fields *ast.FieldList, info *types.Info) map[string]string {
-	params := make(map[string]string)
+func extractFields(fields *ast.FieldList, info *types.Info) []fieldInfo {
+	params := make([]fieldInfo, 0)
 	if fields == nil {
 		return params
 	}
@@ -19,10 +19,16 @@ func extractFields(fields *ast.FieldList, info *types.Info) map[string]string {
 
 		if len(field.Names) > 0 {
 			for _, name := range field.Names {
-				params[name.Name] = typStr
+				params = append(params, fieldInfo{
+					Name: name.Name,
+					Type: typStr,
+				})
 			}
 		} else {
-			params[fieldPrefix+strconv.Itoa(i)] = typStr
+			params = append(params, fieldInfo{
+				Name: fieldPrefix + strconv.Itoa(i),
+				Type: typStr,
+			})
 		}
 	}
 	return params

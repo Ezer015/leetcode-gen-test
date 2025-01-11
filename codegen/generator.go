@@ -12,11 +12,16 @@ import (
 	"text/template"
 )
 
+type fieldInfo struct {
+	Name string
+	Type string
+}
+
 type testTemplateData struct {
 	PackageName string
 	FuncName    string
-	Params      map[string]string
-	Returns     map[string]string
+	Params      []fieldInfo
+	Returns     []fieldInfo
 }
 
 const testTemplate = `// Auto-generated test file for {{.FuncName}}
@@ -25,14 +30,14 @@ package {{.PackageName}}
 import "testing"
 
 type test{{.FuncName | UpperFirst}}Input struct {
-    {{- range $param, $type := .Params}}
-    	{{$param}} {{$type}}
+    {{- range .Params}}
+    {{.Name}} {{.Type}}
     {{- end}}}
 
 type test{{.FuncName | UpperFirst}}Result struct {
-	{{- range $return, $type := .Returns}}
-		{{$return}} {{$type}}
-	{{- end}}}
+    {{- range .Returns}}
+    {{.Name}} {{.Type}}
+    {{- end}}}
 
 func Test{{.FuncName | UpperFirst}}(t *testing.T) {
     testCases := []struct {
@@ -41,23 +46,23 @@ func Test{{.FuncName | UpperFirst}}(t *testing.T) {
         result test{{.FuncName | UpperFirst}}Result
     }{
         // TODO: Add test cases
-	}
+    }
     
     for _, tc := range testCases {
         t.Run(tc.name, func(t *testing.T) {
-			{{- if .Returns}}
-				{{- $first := true -}}
-				{{- range $return, $_ := .Returns -}}
-					{{- if not $first}}, {{end -}}
-					{{$return}}
-					{{- $first = false -}}
-				{{- end}} := 
-			{{- end}}{{.FuncName}}({{range $param, $type := .Params}}tc.input.{{$param}},{{end}})
-			{{- range $return, $_ := .Returns}}
-				if {{$return}} != tc.result.{{$return}} {
-					t.Errorf("{{$.FuncName}}() {{$return}} = %+v, want {{$return}} = %+v", {{$return}}, tc.result.{{$return}})
-				}
-			{{- end}}
+            {{- if .Returns}}
+                {{- $first := true -}}
+                {{- range .Returns -}}
+                    {{- if not $first}}, {{end -}}
+                    {{.Name}}
+                    {{- $first = false -}}
+                {{- end}} := 
+            {{- end}}{{.FuncName}}({{range $i, $p := .Params}}{{if $i}}, {{end}}tc.input.{{$p.Name}}{{end}})
+            {{- range .Returns}}
+            if {{.Name}} != tc.result.{{.Name}} {
+                t.Errorf("{{$.FuncName}}() {{.Name}} = %+v, want {{.Name}} = %+v", {{.Name}}, tc.result.{{.Name}})
+            }
+            {{- end}}
         })
     }
 }`
