@@ -15,6 +15,15 @@ func main() {
 	}
 
 	sourceFile := os.Args[1]
+
+	// Generate test file name
+	testFile := fmt.Sprintf("%s_test.go", strings.TrimSuffix(sourceFile, ".go"))
+	if _, err := os.Stat(testFile); err == nil {
+		fmt.Printf("Test file %s already exists. Exiting.\n", testFile)
+		return
+	}
+
+	// Open source file
 	file, err := os.Open(sourceFile)
 	if err != nil {
 		fmt.Printf("Failed to open file: %v\n", err)
@@ -28,9 +37,6 @@ func main() {
 		fmt.Printf("Failed to generate test templates: %v\n", err)
 		return
 	}
-
-	// Generate test file name
-	testFile := fmt.Sprintf("%s_test.go", strings.TrimSuffix(sourceFile, ".go"))
 
 	// Create test file
 	f, err := os.Create(testFile)
