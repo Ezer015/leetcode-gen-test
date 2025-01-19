@@ -2,148 +2,215 @@ package codegen
 
 import (
 	"fmt"
-	"go/ast"
 	"go/format"
-	"go/parser"
-	"go/token"
-	"go/types"
-	"os"
 	"strings"
 	"text/template"
+
+	"github.com/Ezer015/leetcode-gen-test/utils"
 )
+
+const testTag = "go:generate"
 
 type fieldInfo struct {
 	Name string
 	Type string
 }
-
-type testTemplateData struct {
-	PackageName string
-	FuncName    string
-	Params      []fieldInfo
-	Returns     []fieldInfo
+type testCaseInfo struct {
+	Name string
+	Desc string
 }
 
-const testTemplate = `// Auto-generated test file for {{.FuncName}}
-package {{.PackageName}}
+type testFuncData struct {
+	FuncName string
+	Params   []fieldInfo
+	Results  []fieldInfo
+	Generics []fieldInfo
+}
+type testCaseData struct {
+	FuncName string
+	Cases    []testCaseInfo
+}
 
-import "testing"
+type testFuncMetadata struct {
+	pkgName   string
+	testFuncs []testFuncData
+}
+type testCaseMetadata struct {
+	pkgName   string
+	testCases []testCaseData
+}
 
-type test{{.FuncName | UpperFirst}}Input struct {
+const testCaseTemplate = `// Auto-generated test case template for {{.FuncName}}
+{{- $paramGenerics := FilterGenerics .Generics .Params}}
+{{- $resultGenerics := FilterGenerics .Generics .Results}}
+{{- $standardizedFuncName := .FuncName | UpperFirst}}
+{{- $testCaseInputTypeName := TestCaseInputTypeNameOf $standardizedFuncName}}
+{{- $testCaseOutputTypeName := TestCaseOutputTypeNameOf $standardizedFuncName}}
+{{- $testCaseTypeName := TestCaseTypeNameOf $standardizedFuncName}}
+var (
+/* 	
+	_ = {{$testCaseTypeName}}{{TypeListOf .Generics}}{
+		input: {{$testCaseInputTypeName}}{{TypeListOf $paramGenerics}}{
+			{{- range .Params}}
+			{{.Name}}: ...,
+			{{- end}}
+			},
+		output: {{$testCaseOutputTypeName}}{{TypeListOf $resultGenerics}}{
+			{{- range .Results}}
+			{{.Name}}: ...,
+			{{- end}}
+		},
+	} 
+*/
+	
+)
+
+type {{$testCaseInputTypeName}}{{FieldListOf $paramGenerics}} struct {
     {{- range .Params}}
     {{.Name}} {{.Type}}
     {{- end}}}
 
-type test{{.FuncName | UpperFirst}}Result struct {
-    {{- range .Returns}}
+type {{$testCaseOutputTypeName}}{{FieldListOf $resultGenerics}} struct {
+    {{- range .Results}}
     {{.Name}} {{.Type}}
     {{- end}}}
 
-func Test{{.FuncName | UpperFirst}}(t *testing.T) {
-    testCases := []struct {
-        name   string
-        input  test{{.FuncName | UpperFirst}}Input
-        result test{{.FuncName | UpperFirst}}Result
-    }{
-        // TODO: Add test cases
-    }
-    
-    for _, tc := range testCases {
-        t.Run(tc.name, func(t *testing.T) {
-            {{- if .Returns}}
-                {{- $first := true -}}
-                {{- range .Returns -}}
-                    {{- if not $first}}, {{end -}}
-                    {{.Name}}
-                    {{- $first = false -}}
-                {{- end}} := 
-            {{- end}}{{.FuncName}}({{range $i, $p := .Params}}{{if $i}}, {{end}}tc.input.{{$p.Name}}{{end}})
-            {{- range .Returns}}
-            if {{.Name}} != tc.result.{{.Name}} {
-                t.Errorf("{{$.FuncName}}() {{.Name}} = %+v, want {{.Name}} = %+v", {{.Name}}, tc.result.{{.Name}})
-            }
-            {{- end}}
-        })
-    }
+type {{$testCaseTypeName}}{{FieldListOf .Generics}} struct {
+	name   string
+	input  {{$testCaseInputTypeName}}{{NameListOf $paramGenerics}}
+	output {{$testCaseOutputTypeName}}{{NameListOf $resultGenerics}}
 }`
 
-func GenerateTestTemplates(file *os.File) ([]string, error) {
-	if file == nil {
-		return nil, fmt.Errorf("nil file provided")
-	}
+const testTemplate = `// Auto-generated test for {{.FuncName}}
+{{- $standardizedFuncName := .FuncName | UpperFirst}}
+{{- $results := .Results}}
+func Test{{$standardizedFuncName}}(t *testing.T) {
+    {{- range $_, $c := .Cases}}
+    t.Run("{{.Desc}}", func(t *testing.T) {
+        {{- if $.Results}}{{range $i, $r := $.Results}}{{if $i}}, {{end}}{{$r.Name}}{{end}} := {{end}}{{$.FuncName}}({{range $i, $p := $.Params}}{{if $i}}, {{end}}{{$c.Name}}.input.{{$p.Name}}{{end}})
+        {{- range $.Results}}
+        if {{.Name}} != {{with $c}}{{.Name}}{{end}}.output.{{.Name}} {
+            t.Errorf("{{$.FuncName}}() {{.Name}} = %+v, want {{.Name}} = %+v", {{.Name}}, {{with $c}}{{.Name}}{{end}}.output.{{.Name}})
+        }
+        {{- end}}
+    })
+    {{- end}}
+}`
 
-	// Read file content
-	content, err := os.ReadFile(file.Name())
+func GenerateTestCaseTemplates(content []byte) ([]byte, error) {
+	tfMetadata, err := extractTestFuncs(content)
 	if err != nil {
-		return nil, fmt.Errorf("reading file: %v", err)
+		return nil, fmt.Errorf("extracting test function: %v", err)
 	}
 
-	// Parse file content
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", content, parser.ParseComments)
+	// Generate test case template
+	tmpl, err := template.New("testcase").Funcs(template.FuncMap{
+		"UpperFirst":               upperFirst,
+		"FilterGenerics":           filterGenerics,
+		"TestCaseTypeNameOf":       utils.TestCaseTypeNameOf,
+		"TestCaseInputTypeNameOf":  utils.TestCaseInputTypeNameOf,
+		"TestCaseOutputTypeNameOf": utils.TestCaseOutputTypeNameOf,
+		"FieldListOf":              fieldListOf,
+		"NameListOf":               nameListOf,
+		"TypeListOf":               typeListOf,
+	}).Parse(testCaseTemplate)
 	if err != nil {
-		return nil, fmt.Errorf("parsing file: %v", err)
+		return nil, fmt.Errorf("parsing test case template: %v", err)
 	}
 
-	// Create a type checker
-	conf := types.Config{Importer: nil}
-	info := &types.Info{
-		Types: make(map[ast.Expr]types.TypeAndValue),
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf(`//go:generate leetcode-gen-test generate --test-case=$GOFILE
+package %s
+
+`, tfMetadata.pkgName))
+	for _, tf := range tfMetadata.testFuncs {
+		var buf strings.Builder
+		if err := tmpl.Execute(&buf, tf); err != nil {
+			return nil, fmt.Errorf("executing test case template: %v", err)
+		}
+
+		formattedCode, err := format.Source([]byte(buf.String()))
+		if err != nil {
+			return nil, fmt.Errorf("formatting test case template: %v", err)
+		}
+
+		result.Write(formattedCode)
 	}
 
-	// Type check the file
-	_, err = conf.Check("", fset, []*ast.File{f}, info)
+	return []byte(result.String()), nil
+}
+
+func GenerateTestTemplates(srcContent []byte, testCaseContent []byte) ([]byte, error) {
+	tfMetadata, err := extractTestFuncs(srcContent)
 	if err != nil {
-		return nil, fmt.Errorf("type checking: %v", err)
+		return nil, fmt.Errorf("extracting test function: %v", err)
+	}
+	tcMetadata, err := extractTestCases(testCaseContent)
+	if err != nil {
+		return nil, fmt.Errorf("extracting test cases: %v", err)
+	}
+	if tfMetadata.pkgName != tcMetadata.pkgName {
+		return nil, fmt.Errorf("package name mismatch: %s != %s", tfMetadata.pkgName, tcMetadata.pkgName)
 	}
 
-	// Traverse the AST to find functions in the leetcode block
-	var testTemplates []string
-	ast.Inspect(f, func(n ast.Node) bool {
-		if funcDecl, ok := n.(*ast.FuncDecl); ok {
-			if funcDecl.Doc != nil {
-				for _, comment := range funcDecl.Doc.List {
-					if strings.Contains(comment.Text, "@lc") {
-						goto template_generation
-					}
+	// Generate test template
+	tmpl, err := template.New("test").Funcs(template.FuncMap{
+		"UpperFirst": upperFirst,
+	}).Parse(testTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("parsing test template: %v", err)
+	}
+
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf(`
+package %s
+
+import "testing"
+
+`, tcMetadata.pkgName))
+	for _, tc := range tcMetadata.testCases {
+		var params, results []fieldInfo
+		for _, tf := range tfMetadata.testFuncs {
+			if tf.FuncName == tc.FuncName {
+				params = tf.Params
+				results = tf.Results
+				break
+			}
+		}
+		if len(params) == 0 || len(results) == 0 {
+			for _, tf := range tfMetadata.testFuncs {
+				if upperFirst(tf.FuncName) == tc.FuncName {
+					tc.FuncName = tf.FuncName
+					params = tf.Params
+					results = tf.Results
+					break
 				}
 			}
-			return true
-
-		template_generation:
-			// Extract function data
-			data := testTemplateData{
-				PackageName: f.Name.Name,
-				FuncName:    funcDecl.Name.Name,
-				Params:      extractFields(funcDecl.Type.Params, info),
-				Returns:     extractFields(funcDecl.Type.Results, info),
-			}
-
-			// Generate test template
-			tmpl, err := template.New("test").Funcs(template.FuncMap{
-				"UpperFirst": upperFirst,
-			}).Parse(testTemplate)
-			if err != nil {
-				return false
-			}
-
-			var buf strings.Builder
-			if err := tmpl.Execute(&buf, data); err != nil {
-				return false
-			}
-
-			formattedCode, err := format.Source([]byte(buf.String()))
-			if err != nil {
-				return false
-			}
-			testTemplates = append(testTemplates, string(formattedCode))
 		}
-		return true
-	})
 
-	if len(testTemplates) == 0 {
-		return nil, fmt.Errorf("no functions found in leetcode block")
+		var buf strings.Builder
+		if err := tmpl.Execute(&buf, struct {
+			FuncName string
+			Cases    []testCaseInfo
+			Params   []fieldInfo
+			Results  []fieldInfo
+		}{
+			FuncName: tc.FuncName,
+			Cases:    tc.Cases,
+			Params:   params,
+			Results:  results,
+		}); err != nil {
+			return nil, fmt.Errorf("executing test template: %v", err)
+		}
+
+		formattedCode, err := format.Source([]byte(buf.String()))
+		if err != nil {
+			return nil, fmt.Errorf("formatting test template: %v", err)
+		}
+
+		result.Write(formattedCode)
+		result.WriteString("\n")
 	}
 
-	return testTemplates, nil
+	return []byte(result.String()), nil
 }
