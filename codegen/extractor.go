@@ -14,6 +14,17 @@ import (
 
 const fieldPrefix = "field"
 
+// extractFields processes an AST field list and returns a slice of fieldInfo.
+// It extracts field names and types from the given AST field list using type information.
+//
+// Parameters:
+//   - fields: A pointer to ast.FieldList containing the fields to process
+//   - info: A pointer to types.Info containing type information
+//
+// Returns:
+//   - []fieldInfo: A slice containing the extracted field information.
+//     Each fieldInfo contains the field's name and type as strings.
+//     For unnamed fields, generates names using fieldPrefix + index.
 func extractFields(fields *ast.FieldList, info *types.Info) []fieldInfo {
 	params := make([]fieldInfo, 0)
 	if fields == nil {
@@ -21,7 +32,10 @@ func extractFields(fields *ast.FieldList, info *types.Info) []fieldInfo {
 	}
 
 	for i, field := range fields.List {
-		typStr := info.Types[field.Type].Type.String()
+		typStr := fmt.Sprintf("%v", field.Type)
+		if typeAndValue, ok := info.Types[field.Type]; ok {
+			typStr = typeAndValue.Type.String()
+		}
 
 		if len(field.Names) > 0 {
 			for _, name := range field.Names {
@@ -40,6 +54,23 @@ func extractFields(fields *ast.FieldList, info *types.Info) []fieldInfo {
 	return params
 }
 
+// extractTestFuncs parses Go source code content and extracts test function metadata.
+// It looks for functions marked with a specific test tag in their documentation comments.
+//
+// Parameters:
+//   - content: The source code content as a byte slice
+//
+// Returns:
+//   - *testFuncMetadata: Contains the package name and metadata for all found test functions
+//   - error: Returns an error if parsing fails, type checking fails, or no test functions are found
+//
+// The function performs the following steps:
+// 1. Parses the Go source code
+// 2. Sets up and runs the type checker
+// 3. Traverses the AST looking for functions with test tags
+// 4. Extracts function metadata including name, parameters, results and generics
+//
+// If no functions with test tags are found, it returns an error.
 func extractTestFuncs(content []byte) (*testFuncMetadata, error) {
 	// Parse file content
 	fset := token.NewFileSet()
@@ -92,6 +123,28 @@ func extractTestFuncs(content []byte) (*testFuncMetadata, error) {
 
 const nameAttrName = "name"
 
+// extractTestCases analyzes Go source code to find and extract test case metadata.
+// It parses the given content as Go source code and looks for variables that represent test cases.
+//
+// Parameters:
+//   - content: byte slice containing the Go source code to analyze
+//
+// Returns:
+//   - *testCaseMetadata: Contains extracted test case information including package name and test cases
+//   - error: Returns an error if parsing fails, type checking fails, or no test cases are found
+//
+// The function performs the following steps:
+// 1. Parses the Go source code
+// 2. Type checks the parsed AST
+// 3. Traverses the AST looking for variable declarations
+// 4. For each variable, checks if it represents a test case by examining its type
+// 5. Extracts test case metadata including names and descriptions
+//
+// Test cases are identified by their type name using the utils.IsTestCase() function.
+// For each test case, it extracts:
+// - The function name it tests (derived from the type name)
+// - The test case name (variable name)
+// - The test case description (from the "name" field or generated from variable name)
 func extractTestCases(content []byte) (*testCaseMetadata, error) {
 	// Parse file content
 	fset := token.NewFileSet()

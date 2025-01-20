@@ -35,6 +35,9 @@ func main() {
 
 					// Generate test case file name
 					testCaseFile := utils.TestCaseFileNameOf(sourceFile)
+					if testCaseFile == "" {
+						return cli.Exit("invalid source file name", 1)
+					}
 					if !force {
 						// Check if test case file already exists
 						if _, err := os.Stat(testCaseFile); err == nil {
@@ -98,9 +101,19 @@ func main() {
 						}
 						sourceFile = c.Args().Get(0)
 						testCaseFile = utils.TestCaseFileNameOf(sourceFile)
+						if testCaseFile == "" {
+							return cli.Exit("invalid source file name", 1)
+						}
 					} else {
 						testCaseFile = testCaseVal
 						sourceFile = utils.SrcFileNameOf(testCaseFile)
+						if sourceFile == "" {
+							return cli.Exit("invalid test case file name", 1)
+						}
+					}
+					testFile := utils.TestFileNameOf(sourceFile)
+					if testFile == "" {
+						return cli.Exit("invalid source file name", 1)
 					}
 
 					// Open source srcFile
@@ -138,8 +151,6 @@ func main() {
 					if err != nil {
 						return cli.Exit(fmt.Errorf("failed to generate test templates: %v", err), 1)
 					}
-					// Generate test file name
-					testFile := utils.TestFileNameOf(sourceFile)
 					// Create test file
 					f, err := os.Create(testFile)
 					if err != nil {
